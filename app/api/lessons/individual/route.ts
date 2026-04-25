@@ -1,0 +1,197 @@
+/**
+ * GET /api/lessons/individual - Get all individual lessons
+ * POST /api/lessons/individual - Create new individual lesson
+ */
+
+import { NextRequest } from 'next/server';
+import { supabaseAdmin } from '@/lib/supabase';
+import { getUserFromRequest } from '@/lib/utils/get-user-from-request';
+import { successResponse, errorResponse, unauthorizedResponse } from '@/lib/utils/api-response';
+import {
+  isLessonDateWithinSubmissionWindow,
+  getLessonSubmissionDeadlineMessage,
+  getLessonDeadlineConfigFromSettings,
+} from '@/lib/utils/lesson-submission-deadline';
+import { LessonFilters } from '@/types';
+
+export async function GET(request: NextRequest) {
+  try {
+    const user = getUserFromRequest(request);
+    if (!user) {
+      return unauthorizedResponse();
+    }
+
+    const { searchParams } = new URL(request.url);
+    const filters: LessonFilters = {
+      date_from: searchParams.get('date_from') || undefined,
+      date_to: searchParams.get('date_to') || undefined,
+      teacher_id: searchParams.get('teacher_id') ? parseInt(searchParams.get('teacher_id')!) : undefined,
+      student_id: searchParams.get('student_id') ? parseInt(searchParams.get('student_id')!) : undefined,
+      education_level_id: searchParams.get('education_level_id') ? parseInt(searchParams.get('education_level_id')!) : undefined,
+      approved: searchParams.get('approved') === 'true' ? true : searchParams.get('approved') === 'false' ? false : undefined,
+    };
+
+    let query = supabaseAdmin
+      .from('individual_lessons')
+      .select(`
+        *,
+        teacher:teachers(id, full_name, phone),
+        student:students(id, full_name, parent_contact, education_level_id, class, education_level:education_levels(id, name_ar, name_en)),
+        education_level:education_levels(id, name_ar, name_en),
+        subject:subjects(id, name_ar, name_en, price_per_hour, education_level_id)
+      `);
+
+    // Apply filters
+    if (filters.date_from) {
+      query = query.gte('date', filters.date_from);
+    }
+    if (filters.date_to) {
+      query = query.lte('date', filters.date_to);
+    }
+    if (filters.teacher_id) {
+      query = query.eq('teacher_id', filters.teacher_id);
+    }
+    if (filters.student_id) {
+      query = query.eq('student_id', filters.student_id);
+    }
+    if (filters.education_level_id) {
+      query = query.eq('education_level_id', filters.education_level_id);
+    }
+    if (filters.approved !== undefined) {
+      query = query.eq('approved', filters.approved);
+    }
+
+    // Handle deleted filter - if not explicitly requesting deleted, exclude them
+    const showDeleted = searchParams.get('show_deleted') === 'true';
+    if (!showDeleted) {
+      query = query.is('deleted_at', null);
+    } else {
+      query = query.not('deleted_at', 'is', null);
+    }
+
+    // Teachers can only see their own lessons
+    if (user.role === 'teacher') {
+      const { data: teacher } = await supabaseAdmin
+        .from('teachers')
+        .select('id')
+        .eq('user_id', user.userId)
+        .single();
+      if (teacher) {
+        query = query.eq('teacher_id', teacher.id);
+      }
+    }
+
+    const limitParam = searchParams.get('limit');
+    const requestedLimit = limitParam
+      ? Math.min(20000, Math.max(1, parseInt(limitParam, 10)))
+      : null;
+    const pageSize = 1000; // Supabase/PostgREST max per request
+
+    const ordered = query.order('date', { ascending: false });
+    const all: any[] = [];
+    let from = 0;
+    let hasMore = true;
+    while (hasMore) {
+      const take =
+        requestedLimit !== null && !Number.isNaN(requestedLimit)
+          ? Math.min(pageSize, requestedLimit - all.length)
+          : pageSize;
+      if (take <= 0) break;
+      const { data: chunk, error } = await ordered.range(from, from + take - 1);
+      if (error) {
+        console.error('[API GET /api/lessons/individual] Supabase error:', error.code, error.message, error.details);
+        return errorResponse('Failed to fetch lessons');
+      }
+      const rows = chunk || [];
+      all.push(...rows);
+      hasMore = rows.length === pageSize && (requestedLimit === null || all.length < requestedLimit);
+      from += take;
+    }
+
+    return successResponse(all);
+  } catch (error) {
+    console.error('[API GET /api/lessons/individual] Exception:', error);
+    return errorResponse('An error occurred while fetching lessons');
+  }
+}
+
+export async function POST(request: NextRequest) {
+  try {
+    const user = getUserFromRequest(request);
+    if (!user) {
+      return unauthorizedResponse();
+    }
+
+    const body = await request.json();
+    const { teacher_id, student_id, education_level_id, subject_id, date, start_time, hours } = body;
+
+    if (!teacher_id || !student_id || !education_level_id || !date || !start_time || !hours) {
+      return errorResponse('All fields are required');
+    }
+
+    // Teachers can only create lessons for themselves
+    if (user.role === 'teacher') {
+      const { data: teacher } = await supabaseAdmin
+        .from('teachers')
+        .select('id')
+        .eq('user_id', user.userId)
+        .single();
+      if (!teacher || teacher.id !== teacher_id) {
+        return unauthorizedResponse('You can only create lessons for yourself');
+      }
+      const { data: deadlineRows } = await supabaseAdmin
+        .from('app_settings')
+        .select('key, value')
+        .in('key', ['lesson_submission_deadline_day', 'lesson_submission_deadline_inclusive']);
+      const deadlineConfig = getLessonDeadlineConfigFromSettings(deadlineRows ?? []);
+      if (!isLessonDateWithinSubmissionWindow(date, new Date(), deadlineConfig)) {
+        return errorResponse(getLessonSubmissionDeadlineMessage(deadlineConfig));
+      }
+    }
+
+    // Cost: if subject_id set use subject price (trigger will set total_cost), else use pricing table
+    let total_cost: number | null = null;
+    if (subject_id) {
+      const { data: subject } = await supabaseAdmin
+        .from('subjects')
+        .select('price_per_hour')
+        .eq('id', subject_id)
+        .single();
+      total_cost = subject ? parseFloat((subject.price_per_hour * hours).toFixed(2)) : null;
+    } else {
+      const { data: pricing } = await supabaseAdmin
+        .from('pricing')
+        .select('price_per_hour')
+        .eq('education_level_id', education_level_id)
+        .eq('lesson_type', 'individual')
+        .single();
+      total_cost = pricing ? parseFloat((pricing.price_per_hour * hours).toFixed(2)) : null;
+    }
+
+    const { data: lesson, error } = await supabaseAdmin
+      .from('individual_lessons')
+      .insert({
+        teacher_id,
+        student_id,
+        education_level_id,
+        subject_id: subject_id || null,
+        date,
+        start_time: start_time || null,
+        hours,
+        approved: false, // Default to pending
+        total_cost,
+      })
+      .select()
+      .single();
+
+    if (error || !lesson) {
+      return errorResponse('Failed to create lesson');
+    }
+
+    return successResponse(lesson, 'Lesson created successfully');
+  } catch (error) {
+    console.error('Create individual lesson error:', error);
+    return errorResponse('An error occurred while creating lesson');
+  }
+}
+
