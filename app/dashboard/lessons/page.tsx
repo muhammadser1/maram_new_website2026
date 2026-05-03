@@ -35,9 +35,8 @@ const statusOptions = [
   { value: 'approved', label: 'معتمد' },
   { value: 'deleted', label: 'محذوف' },
 ];
-
-const SPECIAL_LESSON_LABEL = 'خاص (مثل رياضيات، فيزياء، حاسوب... إلخ)';
-
+const SPECIAL_LESSON_LABEL =
+  '(فيزياء، حاسوب، הוראה מתקנת)';
 
 export default function LessonsPage() {
   const router = useRouter();
