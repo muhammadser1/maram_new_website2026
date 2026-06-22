@@ -275,7 +275,8 @@ export default function StatisticsPage() {
       individualHours: number;
       groupLessons: number;
       groupHours: number;
-      specialBySubject: Record<string, SpecialSubjectStats>;
+      specialIndividualBySubject: Record<string, SpecialSubjectStats>;
+      specialGroupBySubject: Record<string, SpecialSubjectStats>;
     };
 
     const teacherMap = new Map<
@@ -304,7 +305,8 @@ export default function StatisticsPage() {
       individualHours: 0,
       groupLessons: 0,
       groupHours: 0,
-      specialBySubject: {},
+      specialIndividualBySubject: {},
+      specialGroupBySubject: {},
     });
 
     const addLesson = (
@@ -335,13 +337,17 @@ export default function StatisticsPage() {
           lesson.subject?.name_ar ||
           // Fallback generic label if subject missing
           (levelName === 'ابتدائي' || levelName === 'إعدادي' ? 'הוראה מתקנת' : 'درس خاص');
-        const current = levelEntry.specialBySubject[subjectName] || {
+        const bucket =
+          type === 'individual'
+            ? levelEntry.specialIndividualBySubject
+            : levelEntry.specialGroupBySubject;
+        const current = bucket[subjectName] || {
           lessons: 0,
           hours: 0,
         };
         current.lessons += 1;
         current.hours += hours;
-        levelEntry.specialBySubject[subjectName] = current;
+        bucket[subjectName] = current;
       } else {
         if (type === 'individual') {
           levelEntry.individualLessons += 1;
@@ -396,16 +402,23 @@ export default function StatisticsPage() {
           lines.push(`فردي: ${indivText}`);
           lines.push(`جماعي: ${groupText}`);
 
-          const subjectNames = Object.keys(stats.specialBySubject);
-          subjectNames.sort((a, b) => a.localeCompare(b, 'ar'));
+          const appendSpecialSubjects = (
+            subjects: Record<string, SpecialSubjectStats>,
+            typeLabel: 'فردي' | 'جماعي'
+          ) => {
+            const subjectNames = Object.keys(subjects);
+            subjectNames.sort((a, b) => a.localeCompare(b, 'ar'));
+            subjectNames.forEach((subjectName) => {
+              const s = subjects[subjectName];
+              lines.push(
+                `${subjectName} (${typeLabel}): ${s.lessons} درس (${formatHours(s.hours)} ساعة)`
+              );
+              searchParts.push(subjectName, typeLabel);
+            });
+          };
 
-          subjectNames.forEach((subjectName) => {
-            const s = stats.specialBySubject[subjectName];
-            lines.push(
-              `${subjectName}: ${s.lessons} درس (${formatHours(s.hours)} ساعة)`
-            );
-            searchParts.push(subjectName);
-          });
+          appendSpecialSubjects(stats.specialIndividualBySubject, 'فردي');
+          appendSpecialSubjects(stats.specialGroupBySubject, 'جماعي');
 
           row[level] = lines.join('\n');
         });
