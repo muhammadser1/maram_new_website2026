@@ -210,7 +210,6 @@ export default function ReportsPage() {
   const openStudentDetail = async (studentId: number) => {
     setSelectedStudentId(studentId);
     setSelectedStudentLessons(null);
-    setSelectedMonthKey('all');
     setCollapsedMonths({});
     setDetailLoading(true);
     try {
@@ -221,6 +220,16 @@ export default function ReportsPage() {
       const individual = (indRes.success && Array.isArray(indRes.data) ? indRes.data : []) as IndividualLesson[];
       const groupRaw = (groupRes.success && Array.isArray(groupRes.data) ? groupRes.data : []) as GroupLesson[];
       const group = groupRaw.filter((g) => g.students?.some((s: { id: number }) => s.id === studentId));
+
+      const monthSet = new Set<string>();
+      const addMonth = (date: string) => {
+        if (date && date.length >= 7) monthSet.add(date.slice(0, 7));
+      };
+      individual.forEach((l) => addMonth(l.date));
+      group.forEach((l) => addMonth(l.date));
+      const sortedMonths = Array.from(monthSet).sort();
+      setSelectedMonthKey(sortedMonths.length ? sortedMonths[sortedMonths.length - 1] : 'all');
+
       setSelectedStudentLessons({ individual, group });
     } catch (e) {
       console.error(e);
@@ -248,10 +257,10 @@ export default function ReportsPage() {
 
     const nextState: Record<string, boolean> = {};
     availableMonths.forEach((monthKey) => {
-      nextState[monthKey] = true;
+      nextState[monthKey] = selectedMonthKey !== 'all' && monthKey !== selectedMonthKey;
     });
     setCollapsedMonths(nextState);
-  }, [availableMonths]);
+  }, [availableMonths, selectedMonthKey]);
 
   const monthOptions = useMemo(() => {
     const opts: { value: string; label: string }[] = [{ value: 'all', label: 'كل الأشهر' }];
@@ -446,10 +455,20 @@ export default function ReportsPage() {
       }))
       .sort((a, b) => a.name.localeCompare(b.name, 'ar'));
 
+    const isAllMonths = selectedMonthKey === 'all';
+    const [selectedYear, selectedMonthNum] = isAllMonths
+      ? [null, null]
+      : selectedMonthKey.split('-').map(Number);
+    const selectedMonthLabel = isAllMonths
+      ? 'كل الأشهر'
+      : `${monthNames[(selectedMonthNum || 1) - 1]} ${selectedYear}`;
+
     return {
       studentName,
       levelName,
       rows: rows.sort((a, b) => b.date.localeCompare(a.date)),
+      isAllMonths,
+      selectedMonthLabel,
       individualDue: parseFloat(individualDue.toFixed(2)),
       groupDue: parseFloat(groupDue.toFixed(2)),
       remedialDue: parseFloat(remedialDue.toFixed(2)),
@@ -601,14 +620,20 @@ export default function ReportsPage() {
           className="w-full !max-w-none"
         >
           <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
-            <div className="w-52">
+            <div className="w-56">
               <Select
-                label="الشهر"
+                label="عرض حسب الشهر"
                 value={selectedMonthKey}
                 onChange={(e) => setSelectedMonthKey(e.target.value)}
                 options={monthOptions}
               />
             </div>
+            {breakdownForMonth && (
+              <p className="text-sm text-gray-600">
+                الإحصائيات والجدول أدناه لـ:{' '}
+                <strong>{breakdownForMonth.selectedMonthLabel}</strong>
+              </p>
+            )}
             <Button variant="secondary" onClick={() => { setSelectedStudentId(null); setSelectedStudentLessons(null); setCollapsedMonths({}); }}>
               إغلاق
             </Button>
@@ -641,7 +666,11 @@ export default function ReportsPage() {
                       if (!byMonth.has(key)) byMonth.set(key, []);
                       byMonth.get(key)!.push(row);
                     });
-                    const sortedMonths = Array.from(byMonth.keys()).sort((a, b) => b.localeCompare(a));
+                    const sortedMonths = Array.from(byMonth.keys())
+                      .filter((monthKey) =>
+                        breakdownForMonth.isAllMonths ? true : monthKey === selectedMonthKey
+                      )
+                      .sort((a, b) => b.localeCompare(a));
                     return sortedMonths.map((monthKey, groupIndex) => {
                       const rows = byMonth.get(monthKey)!;
                       const [y, m] = monthKey.split('-');
@@ -714,7 +743,9 @@ export default function ReportsPage() {
                 </table>
               </div>
               <div className="border-t pt-6 mt-6">
-                <p className="text-lg font-bold text-gray-800 mb-4">إحصائيات (الشهر المختار)</p>
+                <p className="text-lg font-bold text-gray-800 mb-4">
+                  إحصائيات ({breakdownForMonth.selectedMonthLabel})
+                </p>
                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
                   <div className="bg-blue-50 rounded-xl p-5 border border-blue-200 min-h-[140px]">
                     <p className="text-base font-bold text-blue-800 mb-3">فردي</p>
@@ -752,12 +783,33 @@ export default function ReportsPage() {
                   </div>
                   <div className="bg-amber-50 rounded-xl p-5 border border-amber-200 min-h-[140px]">
                     <p className="text-base font-bold text-amber-800 mb-3">الدفع</p>
-                    <p className="text-base">تكلفة الشهر: <span className="font-semibold">{breakdownForMonth.totalForMonth.toFixed(2)} ₪</span></p>
-                    <p className="text-base mt-2">إجمالي المستحق: <span className="font-semibold">{breakdownForMonth.totalDue.toFixed(2)} ₪</span></p>
-                    <p className="text-base mt-1">المدفوع: <span className="font-semibold">{breakdownForMonth.totalPaid.toFixed(2)} ₪</span></p>
-                    <p className={`text-base font-bold mt-3 ${breakdownForMonth.remaining > 0 ? 'text-red-600' : 'text-green-600'}`}>
-                      المتبقي: {breakdownForMonth.remaining.toFixed(2)} ₪
+                    <p className="text-base">
+                      {breakdownForMonth.isAllMonths ? 'إجمالي التكلفة' : 'تكلفة الشهر'}:{' '}
+                      <span className="font-semibold">{breakdownForMonth.totalForMonth.toFixed(2)} ₪</span>
                     </p>
+                    {breakdownForMonth.isAllMonths ? (
+                      <>
+                        <p className="text-base mt-2">
+                          إجمالي المستحق:{' '}
+                          <span className="font-semibold">{breakdownForMonth.totalDue.toFixed(2)} ₪</span>
+                        </p>
+                        <p className="text-base mt-1">
+                          المدفوع:{' '}
+                          <span className="font-semibold">{breakdownForMonth.totalPaid.toFixed(2)} ₪</span>
+                        </p>
+                        <p
+                          className={`text-base font-bold mt-3 ${
+                            breakdownForMonth.remaining > 0 ? 'text-red-600' : 'text-green-600'
+                          }`}
+                        >
+                          المتبقي: {breakdownForMonth.remaining.toFixed(2)} ₪
+                        </p>
+                      </>
+                    ) : (
+                      <p className="text-sm text-amber-900/80 mt-3 leading-6">
+                        لعرض المدفوع والمتبقي لكل الفترات، اختر &quot;كل الأشهر&quot; من القائمة أعلاه.
+                      </p>
+                    )}
                   </div>
                 </div>
               </div>
