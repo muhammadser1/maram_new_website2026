@@ -36,3 +36,9 @@ yarn-error.log*
 next-env.d.ts
 
 .env.example
+backup/1.9.2026/_manifest.json
+/backup
+database/migration_auto_lock_lessons_until_2026_08_30.sql
+database/student_upgrade_preview_2026.csv
+database/migration_student_upgrade_2026_09_01.sql
+scripts/backup-tables-2026-09-01.js
