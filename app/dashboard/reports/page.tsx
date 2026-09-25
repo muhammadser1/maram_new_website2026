@@ -83,6 +83,54 @@ export default function ReportsPage() {
   const [selectedMonthKey, setSelectedMonthKey] = useState<string>('all'); // 'all' or 'YYYY-MM'
   const [collapsedMonths, setCollapsedMonths] = useState<Record<string, boolean>>({});
 
+  const reportYears = [2024, 2025, 2026];
+  const now = new Date();
+  const [billYear, setBillYear] = useState(String(now.getFullYear()));
+  const [billMonth, setBillMonth] = useState(String(now.getMonth() + 1).padStart(2, '0'));
+  const [monthIndividual, setMonthIndividual] = useState<IndividualLesson[]>([]);
+  const [monthGroup, setMonthGroup] = useState<GroupLesson[]>([]);
+  const [monthLoading, setMonthLoading] = useState(false);
+  const [monthSearch, setMonthSearch] = useState('');
+  const [openStudents, setOpenStudents] = useState<Record<number, boolean>>({});
+
+  useEffect(() => {
+    if (!isAdmin) return;
+    let cancelled = false;
+    const loadMonth = async () => {
+      setMonthLoading(true);
+      try {
+        const year = Number(billYear);
+        const month = Number(billMonth);
+        const dateFilters = {
+          approved: true,
+          date_from: getFirstDayOfMonth(year, month),
+          date_to: getLastDayOfMonth(year, month),
+          limit: 10000,
+        };
+        const [indRes, groupRes] = await Promise.all([
+          api.getIndividualLessons(dateFilters),
+          api.getGroupLessons(dateFilters),
+        ]);
+        if (cancelled) return;
+        setMonthIndividual(
+          indRes.success && Array.isArray(indRes.data) ? (indRes.data as IndividualLesson[]) : []
+        );
+        setMonthGroup(
+          groupRes.success && Array.isArray(groupRes.data) ? (groupRes.data as GroupLesson[]) : []
+        );
+        setOpenStudents({});
+      } catch (e) {
+        console.error(e);
+      } finally {
+        if (!cancelled) setMonthLoading(false);
+      }
+    };
+    loadMonth();
+    return () => {
+      cancelled = true;
+    };
+  }, [isAdmin, billYear, billMonth]);
+
   useEffect(() => {
     loadData();
   }, []);
@@ -492,6 +540,89 @@ export default function ReportsPage() {
     };
   }, [selectedStudentId, selectedStudentLessons, selectedMonthKey, groupPricingTiers, summaryByStudent, paymentsByStudent]);
 
+  const monthBills = useMemo(() => {
+    type LessonLine = {
+      key: string;
+      typeLabel: string;
+      date: string;
+      hours: number;
+      cost: number;
+      teacherName: string;
+    };
+    const map = new Map<number, { studentId: number; studentName: string; lessons: LessonLine[]; total: number }>();
+    const ensure = (id: number, name: string) => {
+      const existing = map.get(id);
+      if (existing) return existing;
+      const entry = { studentId: id, studentName: name || `طالب ${id}`, lessons: [] as LessonLine[], total: 0 };
+      map.set(id, entry);
+      return entry;
+    };
+
+    monthIndividual.forEach((lesson) => {
+      if (!lesson.approved || !lesson.student_id) return;
+      const cost = Number(lesson.total_cost) || 0;
+      const isSpecial = Boolean(lesson.subject_id);
+      const subjectName = lesson.subject?.name_ar;
+      const entry = ensure(lesson.student_id, lesson.student?.full_name || '');
+      entry.lessons.push({
+        key: `ind-${lesson.id}`,
+        typeLabel: isSpecial ? `خاص${subjectName ? ` - ${subjectName}` : ''}` : 'فردي',
+        date: lesson.date,
+        hours: Number(lesson.hours) || 0,
+        cost,
+        teacherName: lesson.teacher?.full_name || '-',
+      });
+      entry.total += cost;
+    });
+
+    monthGroup.forEach((lesson) => {
+      if (!lesson.approved) return;
+      const participants = lesson.students || [];
+      if (!participants.length) return;
+      let totalForLesson = Number(lesson.total_cost) || 0;
+      if (config.app.groupPricingMode === 'tiers' && !lesson.subject_id) {
+        const tier = groupPricingTiers.find(
+          (t) => t.education_level_id === lesson.education_level_id && t.student_count === participants.length
+        );
+        if (tier) totalForLesson = Number(tier.total_price) * Number(lesson.hours || 1);
+      }
+      const share = totalForLesson > 0 ? totalForLesson / participants.length : 0;
+      const isSpecial = Boolean(lesson.subject_id);
+      const subjectName = lesson.subject?.name_ar;
+      const typeLabel = isSpecial ? `خاص${subjectName ? ` - ${subjectName}` : ''}` : 'جماعي';
+      participants.forEach((student) => {
+        const entry = ensure(student.id, student.full_name || '');
+        entry.lessons.push({
+          key: `grp-${lesson.id}-${student.id}`,
+          typeLabel,
+          date: lesson.date,
+          hours: Number(lesson.hours) || 0,
+          cost: parseFloat(share.toFixed(2)),
+          teacherName: lesson.teacher?.full_name || '-',
+        });
+        entry.total += share;
+      });
+    });
+
+    const q = monthSearch.trim().toLowerCase();
+    return Array.from(map.values())
+      .filter((row) => !q || row.studentName.toLowerCase().includes(q))
+      .map((row) => ({
+        ...row,
+        lessons: [...row.lessons].sort((a, b) => a.date.localeCompare(b.date)),
+        total: parseFloat(row.total.toFixed(2)),
+      }))
+      .sort((a, b) => b.total - a.total);
+  }, [monthIndividual, monthGroup, groupPricingTiers, monthSearch]);
+
+  const monthBillTotals = useMemo(() => {
+    const lessons = monthBills.reduce((sum, row) => sum + row.lessons.length, 0);
+    const amount = monthBills.reduce((sum, row) => sum + row.total, 0);
+    return { students: monthBills.length, lessons, amount: parseFloat(amount.toFixed(2)) };
+  }, [monthBills]);
+
+  const billMonthLabel = `${monthNames[Number(billMonth) - 1] || ''} ${billYear}`;
+
   if (!isAdmin) {
     return (
       <div dir="rtl" className="p-6">
@@ -510,6 +641,109 @@ export default function ReportsPage() {
         <h1 className="text-3xl font-bold text-gray-900">التقارير والإحصائيات</h1>
         <p className="text-gray-600 mt-1">مستحقات الطلاب حسب الشهر مع تفاصيل الدروس والإحصائيات</p>
       </div>
+
+      <Card title="مستحقات شهر محدد" variant="elevated">
+        <p className="text-sm text-gray-600 mb-4">
+          اختر الشهر لعرض كل الطلاب الذين لديهم دروس معتمدة، وكل درس، والمبلغ المستحق عن هذا الشهر فقط.
+        </p>
+        <div className="flex flex-wrap items-end gap-4 mb-4">
+          <Select
+            label="السنة"
+            value={billYear}
+            onChange={(e) => setBillYear(e.target.value)}
+            options={reportYears.map((year) => ({ value: String(year), label: String(year) }))}
+            className="w-32"
+          />
+          <Select
+            label="الشهر"
+            value={billMonth}
+            onChange={(e) => setBillMonth(e.target.value)}
+            options={monthNames.map((name, index) => ({
+              value: String(index + 1).padStart(2, '0'),
+              label: name,
+            }))}
+            className="w-40"
+          />
+          <Input
+            label="بحث"
+            placeholder="ابحث باسم الطالب"
+            value={monthSearch}
+            onChange={(e) => setMonthSearch(e.target.value)}
+            className="w-56"
+          />
+        </div>
+        {monthLoading ? (
+          <p className="text-gray-500 py-6 text-center">جاري تحميل دروس {billMonthLabel}...</p>
+        ) : monthBills.length === 0 ? (
+          <p className="text-gray-500 py-6 text-center">لا توجد دروس معتمدة في {billMonthLabel}.</p>
+        ) : (
+          <div className="space-y-3">
+            <div className="flex flex-wrap gap-4 text-sm text-gray-800 bg-gray-50 border border-gray-200 rounded-lg px-4 py-3">
+              <span><strong>الشهر:</strong> {billMonthLabel}</span>
+              <span><strong>الطلاب:</strong> {monthBillTotals.students}</span>
+              <span><strong>الدروس:</strong> {monthBillTotals.lessons}</span>
+              <span><strong>المستحق للشهر:</strong> {formatCurrency(monthBillTotals.amount)}</span>
+            </div>
+            <div className="overflow-x-auto border border-gray-200 rounded-xl">
+              <table className="min-w-full text-sm">
+                <thead className="bg-gray-100">
+                  <tr>
+                    <th className="text-right py-2.5 px-3">الطالب</th>
+                    <th className="text-right py-2.5 px-3">النوع</th>
+                    <th className="text-right py-2.5 px-3">التاريخ</th>
+                    <th className="text-right py-2.5 px-3">الساعات</th>
+                    <th className="text-right py-2.5 px-3">المبلغ</th>
+                    <th className="text-right py-2.5 px-3">المعلم</th>
+                  </tr>
+                </thead>
+                {monthBills.map((student) => {
+                  const isOpen = openStudents[student.studentId] !== false;
+                  return (
+                    <tbody key={student.studentId} className="border-t-2 border-gray-300">
+                      <tr className="bg-blue-50">
+                        <td colSpan={6} className="py-2 px-3">
+                          <button
+                            type="button"
+                            className="w-full flex items-center justify-between gap-3 text-right"
+                            onClick={() =>
+                              setOpenStudents((prev) => ({
+                                ...prev,
+                                [student.studentId]: prev[student.studentId] === false,
+                              }))
+                            }
+                          >
+                            <span className="font-bold text-gray-900">
+                              <span className="ml-2">{isOpen ? '▼' : '▶'}</span>
+                              {student.studentName}
+                              <span className="mr-2 font-normal text-gray-600">
+                                ({student.lessons.length} درس)
+                              </span>
+                            </span>
+                            <span className="font-semibold text-gray-900">
+                              مستحق الشهر: {formatCurrency(student.total)}
+                            </span>
+                          </button>
+                        </td>
+                      </tr>
+                      {isOpen &&
+                        student.lessons.map((lesson) => (
+                          <tr key={lesson.key} className="border-t border-gray-100">
+                            <td className="py-2 px-3 text-gray-400">—</td>
+                            <td className="py-2 px-3">{lesson.typeLabel}</td>
+                            <td className="py-2 px-3">{lesson.date}</td>
+                            <td className="py-2 px-3">{lesson.hours}</td>
+                            <td className="py-2 px-3">{lesson.cost.toFixed(2)} ₪</td>
+                            <td className="py-2 px-3">{lesson.teacherName}</td>
+                          </tr>
+                        ))}
+                    </tbody>
+                  );
+                })}
+              </table>
+            </div>
+          </div>
+        )}
+      </Card>
 
       <Card title="قائمة الطلاب" variant="elevated">
         <div className="flex flex-wrap items-center gap-4 mb-4">
