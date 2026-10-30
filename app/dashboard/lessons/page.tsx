@@ -1842,20 +1842,11 @@ export default function LessonsPage() {
                       { value: '', label: 'اختر المادة' },
                       ...subjects
                         .filter((s) => {
-                          const levelMatch =
+                          // Show subjects for the selected level, or global (no level)
+                          return (
                             !s.education_level_id ||
-                            s.education_level_id?.toString() === individualForm.education_level_id;
-                          if (!levelMatch) return false;
-
-                          const level = educationLevels.find(
-                            (l) => l.id.toString() === individualForm.education_level_id
+                            s.education_level_id?.toString() === individualForm.education_level_id
                           );
-                          const levelName = level?.name_ar?.trim() || '';
-
-                          if (isRemedialSubject(s)) {
-                            return levelName === 'ابتدائي' || levelName === 'إعدادي';
-                          }
-                          return true;
                         })
                         .map((s) => ({ value: s.id.toString(), label: s.name_ar })),
                     ]}
@@ -2172,20 +2163,11 @@ export default function LessonsPage() {
                       { value: '', label: 'اختر المادة' },
                       ...subjects
                         .filter((s) => {
-                          const levelMatch =
+                          // Show subjects for the selected level, or global (no level)
+                          return (
                             !s.education_level_id ||
-                            s.education_level_id?.toString() === groupForm.education_level_id;
-                          if (!levelMatch) return false;
-
-                          const level = educationLevels.find(
-                            (l) => l.id.toString() === groupForm.education_level_id
+                            s.education_level_id?.toString() === groupForm.education_level_id
                           );
-                          const levelName = level?.name_ar?.trim() || '';
-
-                          if (isRemedialSubject(s)) {
-                            return levelName === 'ابتدائي' || levelName === 'إعدادي';
-                          }
-                          return true;
                         })
                         .map((s) => ({ value: s.id.toString(), label: s.name_ar })),
                     ]}
