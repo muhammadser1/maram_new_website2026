@@ -623,6 +623,78 @@ export default function ReportsPage() {
 
   const billMonthLabel = `${monthNames[Number(billMonth) - 1] || ''} ${billYear}`;
 
+  /** Printable PDF table: # | student | lesson count for the selected month (ignores search). */
+  const downloadMonthStudentList = async () => {
+    const map = new Map<number, { name: string; count: number }>();
+
+    monthIndividual.forEach((lesson) => {
+      if (!lesson.approved || !lesson.student_id) return;
+      const id = lesson.student_id;
+      const name = lesson.student?.full_name || `طالب ${id}`;
+      const existing = map.get(id);
+      if (existing) existing.count += 1;
+      else map.set(id, { name, count: 1 });
+    });
+
+    monthGroup.forEach((lesson) => {
+      if (!lesson.approved) return;
+      (lesson.students || []).forEach((student) => {
+        const id = student.id;
+        const name = student.full_name || `طالب ${id}`;
+        const existing = map.get(id);
+        if (existing) existing.count += 1;
+        else map.set(id, { name, count: 1 });
+      });
+    });
+
+    const rows = Array.from(map.values()).sort((a, b) =>
+      a.name.localeCompare(b.name, 'ar')
+    );
+    if (!rows.length) return;
+
+    const tableRows = rows
+      .map(
+        (row, index) => `
+        <tr>
+          <td style="border:1px solid #333;padding:8px 10px;text-align:center;">${index + 1}</td>
+          <td style="border:1px solid #333;padding:8px 10px;text-align:right;">${row.name}</td>
+          <td style="border:1px solid #333;padding:8px 10px;text-align:center;">${row.count} درس</td>
+        </tr>`
+      )
+      .join('');
+
+    const container = document.createElement('div');
+    container.dir = 'rtl';
+    container.style.cssText =
+      'font-family:Tahoma,Arial,sans-serif;color:#111;padding:16px;width:700px;';
+    container.innerHTML = `
+      <h2 style="margin:0 0 8px;font-size:20px;text-align:center;">قائمة طلاب ${billMonthLabel}</h2>
+      <p style="margin:0 0 16px;font-size:13px;text-align:center;">عدد الطلاب: ${rows.length}</p>
+      <table style="width:100%;border-collapse:collapse;font-size:13px;">
+        <thead>
+          <tr style="background:#f3f4f6;">
+            <th style="border:1px solid #333;padding:8px 10px;width:56px;">#</th>
+            <th style="border:1px solid #333;padding:8px 10px;">الطالب</th>
+            <th style="border:1px solid #333;padding:8px 10px;width:110px;">عدد الدروس</th>
+          </tr>
+        </thead>
+        <tbody>${tableRows}</tbody>
+      </table>
+    `;
+
+    const html2pdf = (await import('html2pdf.js')).default;
+    await html2pdf()
+      .set({
+        margin: [10, 10, 10, 10],
+        filename: `طلاب-${billMonthLabel.replace(/\s+/g, '-')}.pdf`,
+        image: { type: 'jpeg', quality: 0.98 },
+        html2canvas: { scale: 2, useCORS: true },
+        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+      })
+      .from(container)
+      .save();
+  };
+
   if (!isAdmin) {
     return (
       <div dir="rtl" className="p-6">
@@ -671,6 +743,16 @@ export default function ReportsPage() {
             onChange={(e) => setMonthSearch(e.target.value)}
             className="w-56"
           />
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            className="mb-0.5"
+            disabled={monthLoading || (monthIndividual.length === 0 && monthGroup.length === 0)}
+            onClick={downloadMonthStudentList}
+          >
+            تحميل PDF للطباعة
+          </Button>
         </div>
         {monthLoading ? (
           <p className="text-gray-500 py-6 text-center">جاري تحميل دروس {billMonthLabel}...</p>
