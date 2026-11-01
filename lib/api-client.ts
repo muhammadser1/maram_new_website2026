@@ -493,9 +493,12 @@ export const api = {
   },
 
   // Payments
-  async getPayments(studentId?: number) {
-    const query = studentId ? `?student_id=${studentId}` : '';
-    return apiRequest(`${API_ROUTES.PAYMENTS.BASE}${query}`);
+  async getPayments(studentId?: number, options?: { mine?: boolean }) {
+    const search = new URLSearchParams();
+    if (studentId) search.set('student_id', String(studentId));
+    if (options?.mine) search.set('mine', '1');
+    const q = search.toString();
+    return apiRequest(`${API_ROUTES.PAYMENTS.BASE}${q ? `?${q}` : ''}`);
   },
 
   async getDuesSummary() {

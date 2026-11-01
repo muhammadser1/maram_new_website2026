@@ -1,5 +1,5 @@
 /**
- * GET /api/payments - Get all payments (Admin only)
+ * GET /api/payments - Admin: all payments. Secretary: only payments she created (?mine=1).
  * POST /api/payments - Add new payment (Admin or Secretary)
  */
 
@@ -26,12 +26,17 @@ export async function GET(request: NextRequest) {
     if (!user) {
       return unauthorizedResponse();
     }
-    if (user.role !== 'admin' && user.role !== 'subAdmin') {
-      return forbiddenResponse('Admin access required');
-    }
 
     const { searchParams } = new URL(request.url);
     const studentId = searchParams.get('student_id');
+    const mine = searchParams.get('mine') === '1' || searchParams.get('mine') === 'true';
+
+    const isAdmin = user.role === 'admin' || user.role === 'subAdmin';
+    const isSecretary = user.role === 'secretary';
+
+    if (!isAdmin && !(isSecretary && mine)) {
+      return forbiddenResponse('Admin access required');
+    }
 
     let query = supabaseAdmin
       .from('payments')
@@ -39,7 +44,12 @@ export async function GET(request: NextRequest) {
         *,
         student:students(id, full_name, parent_contact)
       `)
-      .order('payment_date', { ascending: false });
+      .order('payment_date', { ascending: false })
+      .order('id', { ascending: false });
+
+    if (isSecretary && mine) {
+      query = query.eq('created_by', user.userId);
+    }
 
     if (studentId) {
       query = query.eq('student_id', parseInt(studentId, 10));
@@ -53,6 +63,7 @@ export async function GET(request: NextRequest) {
     while (hasMore) {
       const { data: chunk, error } = await query.range(from, from + pageSize - 1);
       if (error) {
+        console.error('Get payments error:', error);
         return errorResponse('Failed to fetch payments');
       }
       const rows = chunk || [];
@@ -112,11 +123,16 @@ export async function POST(request: NextRequest) {
         amount: amountNum,
         payment_date: payment_date || getTodayLocalDate(),
         note: note || null,
+        created_by: user.userId,
       })
-      .select()
+      .select(`
+        *,
+        student:students(id, full_name, parent_contact)
+      `)
       .single();
 
     if (error || !payment) {
+      console.error('Create payment error:', error);
       return errorResponse('Failed to create payment');
     }
 

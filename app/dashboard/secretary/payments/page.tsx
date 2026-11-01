@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { api } from '@/lib/api-client';
@@ -8,13 +8,16 @@ import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { ComboBox } from '@/components/ui/ComboBox';
-import { Student } from '@/types';
+import { Payment, Student } from '@/types';
 import { getTodayLocalDate } from '@/lib/utils/date';
+
+const formatCurrency = (value: number) => `${Number(value).toFixed(2)} ₪`;
 
 export default function SecretaryAddPaymentPage() {
   const { isSecretary, isAdmin, loading: authLoading } = useAuth();
   const router = useRouter();
   const [students, setStudents] = useState<Student[]>([]);
+  const [history, setHistory] = useState<Payment[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
@@ -26,14 +29,17 @@ export default function SecretaryAddPaymentPage() {
     note: '',
   });
 
+  const loadHistory = useCallback(async () => {
+    const res = await api.getPayments(undefined, { mine: true });
+    if (res.success && Array.isArray(res.data)) {
+      setHistory(res.data as Payment[]);
+    }
+  }, []);
+
   useEffect(() => {
     if (authLoading) return;
     if (!isSecretary && !isAdmin) {
       router.replace('/dashboard');
-      return;
-    }
-    if (isAdmin && !isSecretary) {
-      // Admins use the full payments page; this page is for secretary
     }
   }, [authLoading, isSecretary, isAdmin, router]);
 
@@ -41,13 +47,16 @@ export default function SecretaryAddPaymentPage() {
     const load = async () => {
       try {
         setLoading(true);
-        const res = await api.getStudents();
-        if (res.success && Array.isArray(res.data)) {
-          setStudents(res.data as Student[]);
+        const [studentsRes] = await Promise.all([
+          api.getStudents(),
+          isSecretary ? loadHistory() : Promise.resolve(),
+        ]);
+        if (studentsRes.success && Array.isArray(studentsRes.data)) {
+          setStudents(studentsRes.data as Student[]);
         }
       } catch (e) {
         console.error(e);
-        setError('فشل تحميل قائمة الطلاب');
+        setError('فشل تحميل البيانات');
       } finally {
         setLoading(false);
       }
@@ -55,7 +64,7 @@ export default function SecretaryAddPaymentPage() {
     if (!authLoading && (isSecretary || isAdmin)) {
       load();
     }
-  }, [authLoading, isSecretary, isAdmin]);
+  }, [authLoading, isSecretary, isAdmin, loadHistory]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -92,6 +101,9 @@ export default function SecretaryAddPaymentPage() {
         payment_date: getTodayLocalDate(),
         note: '',
       });
+      if (isSecretary) {
+        await loadHistory();
+      }
     } catch (err: any) {
       setError(err?.message || 'فشل تسجيل الدفعة');
     } finally {
@@ -169,6 +181,42 @@ export default function SecretaryAddPaymentPage() {
           </Button>
         </form>
       </Card>
+
+      {isSecretary && (
+        <Card title={`سجل دفعاتي (${history.length})`} variant="elevated">
+          <p className="text-sm text-gray-600 mb-4">
+            الدفعات التي قمتِ بتسجيلها فقط (بدون عرض كل مدفوعات المعهد).
+          </p>
+          {history.length === 0 ? (
+            <p className="text-gray-500 py-4 text-center">لا توجد دفعات مسجّلة بعد</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-sm">
+                <thead className="bg-gray-100">
+                  <tr>
+                    <th className="text-right py-2.5 px-3">التاريخ</th>
+                    <th className="text-right py-2.5 px-3">الطالب</th>
+                    <th className="text-right py-2.5 px-3">المبلغ</th>
+                    <th className="text-right py-2.5 px-3">ملاحظة</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {history.map((payment) => (
+                    <tr key={payment.id} className="border-t border-gray-200">
+                      <td className="py-2 px-3">{payment.payment_date}</td>
+                      <td className="py-2 px-3">
+                        {payment.student?.full_name || `طالب ${payment.student_id}`}
+                      </td>
+                      <td className="py-2 px-3">{formatCurrency(payment.amount)}</td>
+                      <td className="py-2 px-3">{payment.note || '-'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Card>
+      )}
     </div>
   );
 }

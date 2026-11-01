@@ -131,6 +131,7 @@ export interface Payment {
   payment_date: string;
   note: string | null;
   created_at: string;
+  created_by?: number | null;
   student?: Student;
 }
 
