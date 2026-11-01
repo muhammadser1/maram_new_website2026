@@ -25,20 +25,23 @@ const protectedRoutes = [
   '/api/settings',
   '/api/backup',
   '/api/subjects',
+  '/api/secretary-hours',
+  '/api/secretaries',
 ];
 
-// Routes that require admin role
+// Routes that require admin role (payments/students enforced in handlers so secretary can POST payment / GET students)
 const adminRoutes = [
   '/api/teachers',
-  '/api/payments',
   '/api/pricing',
   '/api/statistics',
   '/api/reports',
   '/api/group-pricing-tiers',
   '/api/subject-group-tiers',
   '/api/backup',
+  '/api/secretaries',
   // NOTE: /api/settings GET is allowed for all authenticated users (returns limited settings for teachers).
   // Admin enforcement for updates happens inside the route handler (PUT).
+  // NOTE: /api/payments removed — GET admin-only and POST admin|secretary in route handlers.
 ];
 
 // Public routes (no authentication required)

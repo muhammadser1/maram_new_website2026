@@ -27,6 +27,9 @@ export async function GET(request: NextRequest) {
     if (!user) {
       return unauthorizedResponse();
     }
+    if (user.role !== 'admin' && user.role !== 'subAdmin') {
+      return unauthorizedResponse('Admin access required');
+    }
 
     const { data, error } = await supabaseAdmin.rpc('get_student_dues_summary');
 

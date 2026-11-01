@@ -7,15 +7,20 @@ import { Card } from '@/components/ui/Card';
 
 export default function DashboardPage() {
   const router = useRouter();
-  const { user, teacher, isAdmin, isTeacher, loading } = useAuth();
+  const { user, teacher, isAdmin, isTeacher, isSecretary, loading } = useAuth();
 
   useEffect(() => {
-    if (!loading && isTeacher && !isAdmin) {
+    if (loading) return;
+    if (isSecretary) {
+      router.replace('/dashboard/secretary/payments');
+      return;
+    }
+    if (isTeacher && !isAdmin) {
       router.replace('/dashboard/statistics');
     }
-  }, [loading, isTeacher, isAdmin, router]);
+  }, [loading, isTeacher, isAdmin, isSecretary, router]);
 
-  if (isTeacher && !isAdmin) {
+  if (isSecretary || (isTeacher && !isAdmin)) {
     return null;
   }
 

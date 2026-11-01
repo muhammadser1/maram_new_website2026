@@ -624,5 +624,39 @@ export const api = {
   async getFullBackup() {
     return apiRequest<BackupCsvPayload>(API_ROUTES.BACKUP, { method: 'GET' });
   },
+
+  // Secretary hours
+  async getSecretaryHours(params?: { from?: string; to?: string }) {
+    const search = new URLSearchParams();
+    if (params?.from) search.set('from', params.from);
+    if (params?.to) search.set('to', params.to);
+    const q = search.toString();
+    return apiRequest(`${API_ROUTES.SECRETARY_HOURS.BASE}${q ? `?${q}` : ''}`);
+  },
+
+  async createSecretaryHours(data: { work_date: string; hours: number | string; note?: string }) {
+    return apiRequest(API_ROUTES.SECRETARY_HOURS.BASE, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async deleteSecretaryHours(id: number) {
+    return apiRequest(API_ROUTES.SECRETARY_HOURS.BY_ID(id), {
+      method: 'DELETE',
+    });
+  },
+
+  // Secretaries (admin)
+  async getSecretaries() {
+    return apiRequest(API_ROUTES.SECRETARIES.BASE);
+  },
+
+  async createSecretary(data: { username: string; password: string }) {
+    return apiRequest(API_ROUTES.SECRETARIES.BASE, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
 };
 

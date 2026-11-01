@@ -7,6 +7,7 @@ export const USER_ROLES = {
   ADMIN: 'admin',
   SUB_ADMIN: 'subAdmin',
   TEACHER: 'teacher',
+  SECRETARY: 'secretary',
 } as const;
 
 export type UserRole = typeof USER_ROLES[keyof typeof USER_ROLES];
@@ -77,6 +78,13 @@ export const API_ROUTES = {
     BASE: '/api/payments',
     BY_ID: (id: number) => `/api/payments/${id}`,
     DUES_SUMMARY: '/api/payments/dues-summary',
+  },
+  SECRETARY_HOURS: {
+    BASE: '/api/secretary-hours',
+    BY_ID: (id: number) => `/api/secretary-hours/${id}`,
+  },
+  SECRETARIES: {
+    BASE: '/api/secretaries',
   },
   PRICING: {
     BASE: '/api/pricing',

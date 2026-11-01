@@ -18,6 +18,9 @@ export async function GET(
     if (!user) {
       return unauthorizedResponse();
     }
+    if (user.role !== 'admin' && user.role !== 'subAdmin') {
+      return forbiddenResponse('Admin access required');
+    }
 
     const paymentId = parseInt(params.id, 10);
 

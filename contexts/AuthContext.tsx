@@ -17,6 +17,7 @@ interface AuthContextType {
   isAuthenticated: boolean;
   isAdmin: boolean;
   isTeacher: boolean;
+  isSecretary: boolean;
   updateAuthState: (data: { user: User; teacher?: Teacher | null }) => void;
 }
 
@@ -151,6 +152,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const isAuthenticated = !!(user && token);
   const isAdmin = user?.role === 'admin' || user?.role === 'subAdmin';
   const isTeacher = user?.role === 'teacher';
+  const isSecretary = user?.role === 'secretary';
 
   return (
     <AuthContext.Provider
@@ -164,6 +166,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         isAuthenticated,
         isAdmin,
         isTeacher,
+        isSecretary,
       }}
     >
       {children}

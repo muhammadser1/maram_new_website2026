@@ -11,6 +11,12 @@ interface NavItem {
   icon: React.ReactNode;
   adminOnly?: boolean;
   hideForTeachers?: boolean;
+  /** Visible only to secretary */
+  secretaryOnly?: boolean;
+  /** Visible to secretary (and others unless restricted) */
+  secretaryAllowed?: boolean;
+  /** Visible to admin/subAdmin for reviewing secretary hours */
+  adminSecretaryHours?: boolean;
 }
 
 function SidebarIcon({
@@ -73,6 +79,45 @@ const navigation: NavItem[] = [
     adminOnly: true,
   },
   {
+    name: 'إضافة دفعة',
+    href: '/dashboard/secretary/payments',
+    icon: (
+      <SidebarIcon>
+        <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M12 4v16m8-8H4" />
+        </svg>
+      </SidebarIcon>
+    ),
+    secretaryOnly: true,
+    secretaryAllowed: true,
+  },
+  {
+    name: 'ساعات السكرتارية',
+    href: '/dashboard/secretary/hours',
+    icon: (
+      <SidebarIcon>
+        <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+      </SidebarIcon>
+    ),
+    secretaryOnly: true,
+    secretaryAllowed: true,
+  },
+  {
+    name: 'ساعات السكرتارية',
+    href: '/dashboard/secretary-hours',
+    icon: (
+      <SidebarIcon>
+        <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+      </SidebarIcon>
+    ),
+    adminOnly: true,
+    adminSecretaryHours: true,
+  },
+  {
     name: 'التسعير',
     href: '/dashboard/pricing',
     icon: (
@@ -132,6 +177,7 @@ const navigation: NavItem[] = [
       </SidebarIcon>
     ),
     hideForTeachers: true,
+    secretaryAllowed: true,
   },
 ];
 
@@ -143,9 +189,13 @@ interface SidebarProps {
 
 export function Sidebar({ isMobile = false, onClose, className = '' }: SidebarProps) {
   const pathname = usePathname();
-  const { isAdmin, isTeacher, logout } = useAuth();
+  const { isAdmin, isTeacher, isSecretary, logout } = useAuth();
 
   const filteredNav = navigation.filter((item) => {
+    if (isSecretary) {
+      return Boolean(item.secretaryAllowed || item.secretaryOnly);
+    }
+    if (item.secretaryOnly) return false;
     if (item.adminOnly && !isAdmin) return false;
     if (item.hideForTeachers && isTeacher) return false;
     return true;

@@ -48,6 +48,11 @@ export default function SettingsPage() {
   const [teachersZipError, setTeachersZipError] = useState<string | null>(null);
   const [exportYear, setExportYear] = useState(new Date().getFullYear());
   const [exportMonth, setExportMonth] = useState(String(new Date().getMonth() + 1).padStart(2, '0'));
+  const [secretaries, setSecretaries] = useState<Array<{ id: number; username: string; is_active: boolean }>>([]);
+  const [secretaryForm, setSecretaryForm] = useState({ username: '', password: '' });
+  const [secretarySaving, setSecretarySaving] = useState(false);
+  const [secretaryError, setSecretaryError] = useState<string | null>(null);
+  const [secretarySuccess, setSecretarySuccess] = useState<string | null>(null);
 
   useEffect(() => {
     loadSettings();
@@ -55,9 +60,10 @@ export default function SettingsPage() {
 
   const loadSettings = async () => {
     try {
-      const [settingsRes, teachersRes] = await Promise.all([
+      const [settingsRes, teachersRes, secretariesRes] = await Promise.all([
         api.getSettings(),
         isAdmin ? api.getTeachers() : Promise.resolve({ success: true, data: [] }),
+        isAdmin ? api.getSecretaries() : Promise.resolve({ success: true, data: [] }),
       ]);
       if (settingsRes.success && settingsRes.data) {
         setSettings(settingsRes.data);
@@ -65,10 +71,41 @@ export default function SettingsPage() {
       if (teachersRes.success && Array.isArray(teachersRes.data)) {
         setTeachers(teachersRes.data as Teacher[]);
       }
+      if (secretariesRes.success && Array.isArray(secretariesRes.data)) {
+        setSecretaries(secretariesRes.data as Array<{ id: number; username: string; is_active: boolean }>);
+      }
     } catch (error) {
       console.error('Error loading settings:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const createSecretaryAccount = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!isAdmin) return;
+    setSecretaryError(null);
+    setSecretarySuccess(null);
+    try {
+      setSecretarySaving(true);
+      const res = await api.createSecretary({
+        username: secretaryForm.username,
+        password: secretaryForm.password,
+      });
+      if (!res.success) {
+        setSecretaryError(res.error || 'فشل إنشاء الحساب');
+        return;
+      }
+      setSecretarySuccess('تم إنشاء حساب السكرتيرة بنجاح');
+      setSecretaryForm({ username: '', password: '' });
+      const listRes = await api.getSecretaries();
+      if (listRes.success && Array.isArray(listRes.data)) {
+        setSecretaries(listRes.data as Array<{ id: number; username: string; is_active: boolean }>);
+      }
+    } catch (err: any) {
+      setSecretaryError(err?.message || 'فشل إنشاء الحساب');
+    } finally {
+      setSecretarySaving(false);
     }
   };
 
@@ -402,6 +439,55 @@ export default function SettingsPage() {
           </div>
         </div>
       </Card>
+
+      {isAdmin && (
+        <Card title="حساب السكرتيرة" variant="elevated" className="mb-6">
+          <p className="text-sm text-gray-600 mb-4">
+            إنشاء حساب سكرتيرة يمكنه إضافة دفعات وتسجيل ساعات العمل فقط (بدون صلاحيات الإدارة أو المعلمين).
+          </p>
+          <form onSubmit={createSecretaryAccount} className="space-y-4 max-w-md mb-6">
+            <Input
+              label="اسم المستخدم"
+              value={secretaryForm.username}
+              onChange={(e) => setSecretaryForm((prev) => ({ ...prev, username: e.target.value }))}
+              required
+            />
+            <Input
+              label="كلمة المرور"
+              type="password"
+              value={secretaryForm.password}
+              onChange={(e) => setSecretaryForm((prev) => ({ ...prev, password: e.target.value }))}
+              required
+            />
+            {secretaryError && (
+              <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+                {secretaryError}
+              </div>
+            )}
+            {secretarySuccess && (
+              <div className="p-3 bg-green-50 border border-green-200 rounded-lg text-green-700 text-sm">
+                {secretarySuccess}
+              </div>
+            )}
+            <Button type="submit" disabled={secretarySaving} isLoading={secretarySaving}>
+              إنشاء حساب سكرتيرة
+            </Button>
+          </form>
+          {secretaries.length > 0 && (
+            <div className="border-t border-gray-200 pt-4">
+              <h3 className="font-semibold text-gray-900 mb-2">الحسابات الحالية</h3>
+              <ul className="text-sm text-gray-700 space-y-1">
+                {secretaries.map((s) => (
+                  <li key={s.id}>
+                    {s.username}
+                    {!s.is_active ? ' (غير نشط)' : ''}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </Card>
+      )}
 
       {isAdmin && (
         <Card title="نسخ احتياطي للبيانات" variant="elevated" className="mb-6">

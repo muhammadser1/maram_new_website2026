@@ -1,19 +1,33 @@
 /**
- * GET /api/payments - Get all payments
- * POST /api/payments - Add new payment
+ * GET /api/payments - Get all payments (Admin only)
+ * POST /api/payments - Add new payment (Admin or Secretary)
  */
 
 import { NextRequest } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { getUserFromRequest } from '@/lib/utils/get-user-from-request';
-import { successResponse, errorResponse, unauthorizedResponse } from '@/lib/utils/api-response';
+import { successResponse, errorResponse, unauthorizedResponse, forbiddenResponse } from '@/lib/utils/api-response';
 import { getTodayLocalDate } from '@/lib/utils/date';
+
+async function getStudentRemaining(studentId: number): Promise<number | null> {
+  const { data, error } = await supabaseAdmin.rpc('get_student_dues_summary');
+  if (error || !Array.isArray(data)) {
+    console.error('get_student_dues_summary error:', error);
+    return null;
+  }
+  const row = data.find((r: { student_id: number }) => Number(r.student_id) === studentId);
+  if (!row) return 0;
+  return Number(row.remaining) || 0;
+}
 
 export async function GET(request: NextRequest) {
   try {
     const user = getUserFromRequest(request);
     if (!user) {
       return unauthorizedResponse();
+    }
+    if (user.role !== 'admin' && user.role !== 'subAdmin') {
+      return forbiddenResponse('Admin access required');
     }
 
     const { searchParams } = new URL(request.url);
@@ -57,8 +71,13 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const user = getUserFromRequest(request);
-    if (!user || (user.role !== 'admin' && user.role !== 'subAdmin')) {
-      return unauthorizedResponse('Admin access required');
+    if (!user) {
+      return unauthorizedResponse();
+    }
+    const canCreate =
+      user.role === 'admin' || user.role === 'subAdmin' || user.role === 'secretary';
+    if (!canCreate) {
+      return unauthorizedResponse('Admin or secretary access required');
     }
 
     const body = await request.json();
@@ -68,11 +87,29 @@ export async function POST(request: NextRequest) {
       return errorResponse('Student ID and amount are required');
     }
 
+    const amountNum = parseFloat(amount);
+    if (!Number.isFinite(amountNum) || amountNum <= 0) {
+      return errorResponse('المبلغ يجب أن يكون أكبر من صفر');
+    }
+
+    const remaining = await getStudentRemaining(parseInt(student_id, 10));
+    if (remaining === null) {
+      return errorResponse('تعذر التحقق من رصيد الطالب. حاول مرة أخرى.');
+    }
+    if (remaining <= 0) {
+      return errorResponse('لا يوجد رصيد متبقي لهذا الطالب');
+    }
+    if (amountNum > remaining) {
+      return errorResponse(
+        `المبلغ أكبر من الرصيد المتبقي (${remaining.toFixed(2)} ₪)`
+      );
+    }
+
     const { data: payment, error } = await supabaseAdmin
       .from('payments')
       .insert({
         student_id,
-        amount: parseFloat(amount),
+        amount: amountNum,
         payment_date: payment_date || getTodayLocalDate(),
         note: note || null,
       })
@@ -89,4 +126,3 @@ export async function POST(request: NextRequest) {
     return errorResponse('An error occurred while creating payment');
   }
 }
-

@@ -1,6 +1,6 @@
 /**
  * POST /api/auth/login
- * Login endpoint for admin and teachers
+ * Login endpoint for admin, teachers, and secretary
  */
 
 import { NextRequest } from 'next/server';
