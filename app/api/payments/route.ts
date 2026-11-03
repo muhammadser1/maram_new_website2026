@@ -9,17 +9,6 @@ import { getUserFromRequest } from '@/lib/utils/get-user-from-request';
 import { successResponse, errorResponse, unauthorizedResponse, forbiddenResponse } from '@/lib/utils/api-response';
 import { getTodayLocalDate } from '@/lib/utils/date';
 
-async function getStudentRemaining(studentId: number): Promise<number | null> {
-  const { data, error } = await supabaseAdmin.rpc('get_student_dues_summary');
-  if (error || !Array.isArray(data)) {
-    console.error('get_student_dues_summary error:', error);
-    return null;
-  }
-  const row = data.find((r: { student_id: number }) => Number(r.student_id) === studentId);
-  if (!row) return 0;
-  return Number(row.remaining) || 0;
-}
-
 export async function GET(request: NextRequest) {
   try {
     const user = getUserFromRequest(request);
@@ -101,19 +90,6 @@ export async function POST(request: NextRequest) {
     const amountNum = parseFloat(amount);
     if (!Number.isFinite(amountNum) || amountNum <= 0) {
       return errorResponse('المبلغ يجب أن يكون أكبر من صفر');
-    }
-
-    const remaining = await getStudentRemaining(parseInt(student_id, 10));
-    if (remaining === null) {
-      return errorResponse('تعذر التحقق من رصيد الطالب. حاول مرة أخرى.');
-    }
-    if (remaining <= 0) {
-      return errorResponse('لا يوجد رصيد متبقي لهذا الطالب');
-    }
-    if (amountNum > remaining) {
-      return errorResponse(
-        `المبلغ أكبر من الرصيد المتبقي (${remaining.toFixed(2)} ₪)`
-      );
     }
 
     const { data: payment, error } = await supabaseAdmin
