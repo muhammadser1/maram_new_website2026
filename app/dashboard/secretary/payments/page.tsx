@@ -22,6 +22,8 @@ export default function SecretaryAddPaymentPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [editingPayment, setEditingPayment] = useState<Payment | null>(null);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
   const [formData, setFormData] = useState({
     student_id: '',
     amount: '',
@@ -66,6 +68,51 @@ export default function SecretaryAddPaymentPage() {
     }
   }, [authLoading, isSecretary, isAdmin, loadHistory]);
 
+  const resetForm = () => {
+    setFormData({
+      student_id: '',
+      amount: '',
+      payment_date: getTodayLocalDate(),
+      note: '',
+    });
+    setEditingPayment(null);
+  };
+
+  const handleEdit = (payment: Payment) => {
+    setError('');
+    setSuccess('');
+    setEditingPayment(payment);
+    setFormData({
+      student_id: String(payment.student_id),
+      amount: String(payment.amount),
+      payment_date: payment.payment_date,
+      note: payment.note || '',
+    });
+  };
+
+  const handleDelete = async (id: number) => {
+    if (!confirm('هل أنت متأكد من حذف هذه الدفعة؟')) return;
+    setError('');
+    setSuccess('');
+    try {
+      setDeletingId(id);
+      const response = await api.deletePayment(id);
+      if (!response.success) {
+        setError(response.error || 'فشل حذف الدفعة');
+        return;
+      }
+      if (editingPayment?.id === id) {
+        resetForm();
+      }
+      setSuccess('تم حذف الدفعة');
+      await loadHistory();
+    } catch (err: any) {
+      setError(err?.message || 'فشل حذف الدفعة');
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
@@ -80,32 +127,31 @@ export default function SecretaryAddPaymentPage() {
       return;
     }
 
+    const payload = {
+      student_id: parseInt(formData.student_id, 10),
+      amount: parseFloat(formData.amount),
+      payment_date: formData.payment_date || getTodayLocalDate(),
+      note: formData.note || null,
+    };
+
     try {
       setSubmitting(true);
-      const response = await api.createPayment({
-        student_id: parseInt(formData.student_id, 10),
-        amount: parseFloat(formData.amount),
-        payment_date: formData.payment_date || getTodayLocalDate(),
-        note: formData.note || null,
-      });
+      const response = editingPayment
+        ? await api.updatePayment(editingPayment.id, payload)
+        : await api.createPayment(payload);
 
       if (!response.success) {
-        setError(response.error || 'فشل تسجيل الدفعة');
+        setError(response.error || (editingPayment ? 'فشل تحديث الدفعة' : 'فشل تسجيل الدفعة'));
         return;
       }
 
-      setSuccess('تم تسجيل الدفعة بنجاح');
-      setFormData({
-        student_id: '',
-        amount: '',
-        payment_date: getTodayLocalDate(),
-        note: '',
-      });
+      setSuccess(editingPayment ? 'تم تحديث الدفعة بنجاح' : 'تم تسجيل الدفعة بنجاح');
+      resetForm();
       if (isSecretary) {
         await loadHistory();
       }
     } catch (err: any) {
-      setError(err?.message || 'فشل تسجيل الدفعة');
+      setError(err?.message || (editingPayment ? 'فشل تحديث الدفعة' : 'فشل تسجيل الدفعة'));
     } finally {
       setSubmitting(false);
     }
@@ -130,7 +176,11 @@ export default function SecretaryAddPaymentPage() {
         <p className="text-gray-600 mt-1">تسجيل دفعة جديدة لطالب</p>
       </div>
 
-      <Card title="نموذج الدفعة" variant="elevated" className="max-w-xl">
+      <Card
+        title={editingPayment ? 'تعديل الدفعة' : 'نموذج الدفعة'}
+        variant="elevated"
+        className="max-w-xl"
+      >
         <form onSubmit={handleSubmit} className="space-y-4">
           <ComboBox
             label="الطالب"
@@ -176,9 +226,16 @@ export default function SecretaryAddPaymentPage() {
             </div>
           )}
 
-          <Button type="submit" disabled={submitting} isLoading={submitting}>
-            حفظ الدفعة
-          </Button>
+          <div className="flex gap-2">
+            <Button type="submit" disabled={submitting} isLoading={submitting}>
+              {editingPayment ? 'حفظ التعديل' : 'حفظ الدفعة'}
+            </Button>
+            {editingPayment && (
+              <Button type="button" variant="secondary" onClick={resetForm} disabled={submitting}>
+                إلغاء
+              </Button>
+            )}
+          </div>
         </form>
       </Card>
 
@@ -198,6 +255,7 @@ export default function SecretaryAddPaymentPage() {
                     <th className="text-right py-2.5 px-3">الطالب</th>
                     <th className="text-right py-2.5 px-3">المبلغ</th>
                     <th className="text-right py-2.5 px-3">ملاحظة</th>
+                    <th className="text-right py-2.5 px-3">الإجراءات</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -209,6 +267,28 @@ export default function SecretaryAddPaymentPage() {
                       </td>
                       <td className="py-2 px-3">{formatCurrency(payment.amount)}</td>
                       <td className="py-2 px-3">{payment.note || '-'}</td>
+                      <td className="py-2 px-3">
+                        <div className="flex gap-2">
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => handleEdit(payment)}
+                          >
+                            تعديل
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="danger"
+                            size="sm"
+                            disabled={deletingId === payment.id}
+                            isLoading={deletingId === payment.id}
+                            onClick={() => handleDelete(payment.id)}
+                          >
+                            حذف
+                          </Button>
+                        </div>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
